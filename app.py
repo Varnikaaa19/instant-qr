@@ -53,6 +53,29 @@ def add_logo_to_png(png_bytes: bytes, logo_img: Image.Image, ratio: float = 0.2,
     out.seek(0)
     return out.getvalue()
 
+def make_png_background_transparent(png_bytes: bytes, bg_hex: str = "#FFFFFF") -> bytes:
+    """Turn a solid background color into transparent in a PNG."""
+    img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+    # Parse hex color
+    bg_hex = bg_hex.lstrip("#")
+    bg_rgb = tuple(int(bg_hex[i:i+2], 16) for i in (0, 2, 4))
+
+    data = img.getdata()
+    new_data = []
+    for pixel in data:
+        r, g, b, a = pixel
+        if (r, g, b) == bg_rgb:
+            new_data.append((r, g, b, 0))  # transparent
+        else:
+            new_data.append(pixel)
+    img.putdata(new_data)
+
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    out.seek(0)
+    return out.getvalue()
+
+
 def generate_qr(text: str,
                 error: str = "m",
                 micro: bool = False,
@@ -69,22 +92,28 @@ def generate_qr(text: str,
     """
     qr = segno.make(text, error=error, micro=micro, version=version, mask=mask, boost_error=boost_error)
 
-    # PNG
+    # --- PNG (no 'transparent' kw for segno's PNG writer) ---
     png_buffer = io.BytesIO()
-    qr.save(png_buffer, kind="png", scale=scale, border=border, dark=dark, light=light, transparent=transparent)
+    qr.save(png_buffer, kind="png", scale=scale, border=border, dark=dark, light=light)
     png_buffer.seek(0)
+    png_bytes = png_buffer.getvalue()
 
-    # SVG
+    # Optional: make background transparent using PIL
+    if transparent:
+        png_bytes = make_png_background_transparent(png_bytes, bg_hex=light)
+
+    # --- SVG ---
     svg_buffer = io.BytesIO()
     qr.save(svg_buffer, kind="svg", scale=scale, border=border, dark=dark, light=light)
     svg_buffer.seek(0)
 
-    # PDF
+    # --- PDF ---
     pdf_buffer = io.BytesIO()
     qr.save(pdf_buffer, kind="pdf", border=border, dark=dark, light=light)
     pdf_buffer.seek(0)
 
-    return {"png": png_buffer.getvalue(), "svg": svg_buffer.getvalue(), "pdf": pdf_buffer.getvalue()}
+    return {"png": png_bytes, "svg": svg_buffer.getvalue(), "pdf": pdf_buffer.getvalue()}
+
 
 def build_project_zip():
     """Create an in-memory ZIP of the project files."""
